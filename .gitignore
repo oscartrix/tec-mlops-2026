@@ -1,0 +1,23 @@
+# Entornos virtuales
+.venv/
+venv/
+env/
+ENV/
+
+# Caches de Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Checkpoints de Jupyter
+.ipynb_checkpoints/
+
+# MLflow local runs (si se ejecutan sin servidor remoto)
+mlruns/
+.mlflow/
+
+# Archivos de sistema y logs
+*.log
+.DS_Store
+Thumbs.db
