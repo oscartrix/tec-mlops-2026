@@ -11,9 +11,34 @@ from reportlab.platypus import (
     Image,
     PageBreak,
 )
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+
+
+def register_fonts():
+    # Registrar la fuente Arial del sistema
+    arial_path = "/usr/share/fonts/truetype/msttcorefonts/Arial.ttf"
+    arial_bold_path = "/usr/share/fonts/truetype/msttcorefonts/Arial_Bold.ttf"
+    arial_italic_path = "/usr/share/fonts/truetype/msttcorefonts/Arial_Italic.ttf"
+
+    if os.path.exists(arial_path):
+        pdfmetrics.registerFont(TTFont("Arial", arial_path))
+        pdfmetrics.registerFont(TTFont("Arial-Bold", arial_bold_path))
+        pdfmetrics.registerFont(TTFont("Arial-Italic", arial_italic_path))
+        font_regular = "Arial"
+        font_bold = "Arial-Bold"
+        font_italic = "Arial-Italic"
+    else:
+        font_regular = "Helvetica"
+        font_bold = "Helvetica-Bold"
+        font_italic = "Helvetica-Oblique"
+
+    return font_regular, font_bold, font_italic
 
 
 def create_report(output_pdf_path: str):
+    font_reg, font_bold, font_italic = register_fonts()
+
     doc = SimpleDocTemplate(
         output_pdf_path,
         pagesize=letter,
@@ -23,22 +48,19 @@ def create_report(output_pdf_path: str):
         bottomMargin=54,
     )
 
-    styles = getSampleStyleSheet()
-
-    # Tipografía solicitada: Arial (Helvetica en ReportLab), 11 pt, interlineado 1.5 (leading = 16.5)
-    # Estricto blanco y negro para todos los títulos y textos
+    # Estilos tipográficos en estricto blanco y negro, Arial 11 pt, interlineado 1.5 (leading 16.5)
     title_style = ParagraphStyle(
         name="DocTitle",
-        fontName="Helvetica-Bold",
-        fontSize=15,
-        leading=20,
+        fontName=font_bold,
+        fontSize=14,
+        leading=18,
         textColor=colors.black,
         spaceAfter=6,
     )
 
-    subtitle_style = ParagraphStyle(
-        name="DocSubtitle",
-        fontName="Helvetica",
+    meta_style = ParagraphStyle(
+        name="DocMeta",
+        fontName=font_reg,
         fontSize=10,
         leading=14,
         textColor=colors.black,
@@ -47,20 +69,20 @@ def create_report(output_pdf_path: str):
 
     h1_style = ParagraphStyle(
         name="Header1",
-        fontName="Helvetica-Bold",
-        fontSize=12,
+        fontName=font_bold,
+        fontSize=11,
         leading=16.5,
         textColor=colors.black,
         spaceBefore=10,
-        spaceAfter=6,
+        spaceAfter=4,
         keepWithNext=True,
     )
 
     body_style = ParagraphStyle(
         name="BodyTextCustom",
-        fontName="Helvetica",
+        fontName=font_reg,
         fontSize=11,
-        leading=16.5,  # Interlineado exacto de 1.5 a 11 pt
+        leading=16.5,  # Interlineado 1.5 respecto a 11 pt
         textColor=colors.black,
         spaceAfter=8,
     )
@@ -68,35 +90,35 @@ def create_report(output_pdf_path: str):
     code_style = ParagraphStyle(
         name="CodeBlock",
         fontName="Courier",
-        fontSize=9.5,
-        leading=13.5,
+        fontSize=9,
+        leading=13,
         textColor=colors.black,
-        backColor=colors.HexColor("#F3F4F6"),
-        borderPadding=6,
+        backColor=colors.white,  # Estricto blanco y negro, sin sombreados grises
         spaceAfter=8,
+        leftIndent=10,
     )
 
     table_header_style = ParagraphStyle(
         name="TableHeader",
-        fontName="Helvetica-Bold",
-        fontSize=9,
-        leading=12,
+        fontName=font_bold,
+        fontSize=7.5,
+        leading=9.5,
         textColor=colors.black,
         alignment=1,
     )
 
     table_cell_style = ParagraphStyle(
         name="TableCell",
-        fontName="Helvetica",
-        fontSize=8.5,
-        leading=11.5,
+        fontName=font_reg,
+        fontSize=7.5,
+        leading=9.5,
         textColor=colors.black,
         alignment=1,
     )
 
     caption_style = ParagraphStyle(
         name="Caption",
-        fontName="Helvetica-Oblique",
+        fontName=font_italic,
         fontSize=9,
         leading=12,
         textColor=colors.black,
@@ -106,22 +128,21 @@ def create_report(output_pdf_path: str):
 
     story = []
 
-    # Encabezado del documento
+    # Encabezado formal en blanco y negro
     story.append(Paragraph("TC5061 - Experimentación y Seguimiento de Modelos con MLflow", title_style))
     story.append(
         Paragraph(
-            "<b>Autor:</b> Oscar Alfonso Valenzuela Muñoz &nbsp;|&nbsp; "
-            "<b>Materia:</b> MLOps (Semana 4)<br/>"
-            "<b>Repositorio GitHub:</b> https://github.com/oscartrix/tec-mlops-2026.git",
-            subtitle_style,
+            "Autor: Oscar Alfonso Valenzuela Muñoz | Materia: MLOps (Semana 4)<br/>"
+            "Repositorio: https://github.com/oscartrix/tec-mlops-2026.git",
+            meta_style,
         )
     )
 
-    # 1. Comando exacto de ejecución
+    # 1. Comando de ejecución
     story.append(Paragraph("1. Comando de Ejecución", h1_style))
     story.append(
         Paragraph(
-            "La ejecución del script de entrenamiento parametrizado se realiza directamente desde la terminal. Para reproducir la mejor configuración encontrada se ejecuta el siguiente comando:",
+            "El script de entrenamiento y seguimiento se ejecuta desde la línea de comandos permitiendo controlar los hiperparámetros y la semilla de aleatoriedad. La configuración con mejor desempeño se reproduce con el siguiente comando:",
             body_style,
         )
     )
@@ -133,7 +154,7 @@ def create_report(output_pdf_path: str):
     )
     story.append(
         Paragraph(
-            "Para ejecutar la batería completa de las cinco corridas comparativas de forma desatendida, se incluye el script de automatización:",
+            "Adicionalmente, la totalidad de los cinco experimentos comparativos se ejecuta de manera automatizada mediante el script run_experiments.sh:",
             body_style,
         )
     )
@@ -143,11 +164,12 @@ def create_report(output_pdf_path: str):
     story.append(Paragraph("2. Comparación Sistemática de Experimentos", h1_style))
     story.append(
         Paragraph(
-            "Se registraron cinco corridas bajo el experimento <i>Paddy_Yield_Random_Forest</i> en el servidor de MLflow Tracking, variando sistemáticamente la profundidad máxima, el número de estimadores y las restricciones de división en nodos y hojas. La tabla siguiente presenta los parámetros evaluados y las métricas obtenidas sobre el conjunto de prueba independiente (20% de los datos con semilla fija en 42):",
+            "Se registraron cinco corridas bajo el experimento Paddy_Yield_Random_Forest en el servidor de MLflow Tracking, variando la profundidad máxima, el número de estimadores y las restricciones de bifurcación y hojas. Los resultados obtenidos sobre el conjunto de prueba independiente con semilla fija en 42 se presentan a continuación:",
             body_style,
         )
     )
 
+    # Tabla en estricto blanco y negro, sin líneas horizontales
     table_data = [
         [
             Paragraph("Corrida", table_header_style),
@@ -160,14 +182,14 @@ def create_report(output_pdf_path: str):
             Paragraph("R²", table_header_style),
         ],
         [
-            Paragraph("shallow_depth_5 (Mejor)", table_cell_style),
+            Paragraph("shallow_depth_5", table_cell_style),
             Paragraph("5", table_cell_style),
             Paragraph("100", table_cell_style),
             Paragraph("2", table_cell_style),
             Paragraph("1", table_cell_style),
-            Paragraph("<b>910.49</b>", table_cell_style),
-            Paragraph("<b>654.73</b>", table_cell_style),
-            Paragraph("<b>0.9903</b>", table_cell_style),
+            Paragraph("910.49", table_cell_style),
+            Paragraph("654.73", table_cell_style),
+            Paragraph("0.9903", table_cell_style),
         ],
         [
             Paragraph("regularized_split10_leaf4", table_cell_style),
@@ -211,50 +233,54 @@ def create_report(output_pdf_path: str):
         ],
     ]
 
-    comp_table = Table(table_data, colWidths=[120, 52, 58, 48, 48, 58, 58, 46])
+    # Tabla sin líneas horizontales y en blanco y negro puro
+    comp_table = Table(table_data, colWidths=[120, 52, 60, 46, 44, 48, 48, 38])
     comp_table.setStyle(
         TableStyle(
             [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E5E7EB")),
                 ("ALIGN", (0, 0), (-1, -1), "CENTER"),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#9CA3AF")),
-                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F9FAFB")]),
-                ("TOPPADDING", (0, 0), (-1, -1), 4),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
             ]
         )
     )
     story.append(comp_table)
     story.append(Spacer(1, 10))
 
-    # 3. Análisis de Resultados
+    # 3. Análisis de Resultados en prosa continua y directa
     story.append(Paragraph("3. Análisis de Resultados", h1_style))
     story.append(
         Paragraph(
-            "<b>Configuración con mejor desempeño:</b> La corrida identificada como <i>shallow_depth_5</i> obtuvo el mejor resultado global entre todas las variantes evaluadas, registrando un RMSE de 910.49 kg, un MAE de 654.73 kg y un coeficiente de determinación R² de 0.9903. Al contrastarla con la línea base no restringida (RMSE de 968.59 kg y MAE de 695.62 kg), se aprecia una reducción del error cuadrático medio de 58.10 kg y de 40.89 kg en el error absoluto. Esto evidencia que fijar una cota superior a la profundidad previene la sobreespecialización del ensamble en fluctuaciones particulares del conjunto de entrenamiento.",
+            "Entre las configuraciones evaluadas, el ensamble con profundidad acotada a cinco niveles (shallow_depth_5) obtuvo el desempeño más favorable, alcanzando un RMSE de 910.49 kg, un MAE de 654.73 kg y un coeficiente de determinación R² de 0.9903. En comparación con la línea base no restringida, este ajuste representó una reducción de 58.10 kg en el error cuadrático medio y de 40.89 kg en el error absoluto medio, lo que confirma que limitar el crecimiento vertical de los árboles reduce la sobreespecialización en las fluctuaciones puntuales de la muestra de entrenamiento.",
             body_style,
         )
     )
     story.append(
         Paragraph(
-            "<b>Hiperparámetro más influyente:</b> El hiperparámetro de mayor impacto sobre la capacidad predictiva fue la profundidad máxima del árbol (<i>max_depth</i>), seguido de la restricción del tamaño de nodo hoja (<i>min_samples_leaf</i>). Los árboles con profundidad libre (<i>max_depth=None</i>) o elevada (<i>max_depth=15</i>) tendieron a memorizar ruido local en las variables agronómicas continuas. En contraste, restringir la profundidad a 5 niveles o imponer un mínimo de 4 observaciones por hoja (<i>regularized_split10_leaf4</i>, RMSE 931.82 kg) aportó una regularización estructural decisiva. Asimismo, incrementar el número de árboles de 100 a 250 generó retornos marginales decrecientes y elevó el tiempo de cómputo sin mitigar el sobreajuste cuando la profundidad permaneció sin control.",
+            "El hiperparámetro con mayor influencia en la capacidad predictiva fue la profundidad máxima de los árboles, junto con el tamaño mínimo de muestra en las hojas. Cuando se permitió un crecimiento libre o excesivamente profundo, el modelo tendió a memorizar patrones locales y ruido en las variables agronómicas continuas. Por el contrario, restringir la profundidad o exigir un mínimo de cuatro muestras por hoja aportó una regularización efectiva. Incrementar el número de árboles de 100 a 250 aportó beneficios marginales despreciables frente al costo computacional adicional, sin corregir la sobreestimación cuando la profundidad permaneció sin límites.",
             body_style,
         )
     )
     story.append(
         Paragraph(
-            "<b>Limitaciones observadas:</b> En primer lugar, la partición aleatoria simple no modela posibles agrupaciones geoespaciales o temporales inherentes a los ciclos agrícolas del cultivo de arroz, lo que puede sobrestimar el desempeño en regiones no contempladas. En segundo lugar, la codificación por variables ficticias (One-Hot Encoding) aumentó la dimensionalidad a 63 columnas, incrementando la dispersión en las decisiones de corte de los árboles. Por último, aunque el coeficiente R² supera 0.98 debido a dependencias funcionales entre variables de entrada y rendimiento, la validez del modelo requiere corroboración en temporadas posteriores con condiciones climáticas atípicas.",
+            "Es fundamental señalar que el rendimiento agrícola en este conjunto de datos presenta una correlación lineal superior a 0.99 con la superficie de la parcela en hectáreas, debido a que la producción total en kilogramos está dominada por el tamaño del terreno. Por esta razón, modelos lineales elementales ya explican cerca del 98.7% de la varianza total, y las variaciones entre configuraciones de Random Forest corresponden a ajustes finos en torno a desviaciones locales.",
+            body_style,
+        )
+    )
+    story.append(
+        Paragraph(
+            "Entre las limitaciones principales se encuentra que la partición aleatoria convencional entre entrenamiento y prueba no contempla correlaciones espaciales ni temporales entre ciclos de cosecha, lo que puede sobrestimar el desempeño ante variaciones climáticas imprevistas. Asimismo, la codificación de variables categóricas aumentó la dimensionalidad a 63 columnas, favoreciendo la dispersión en las decisiones de corte de los árboles. Por tanto, la validación del modelo requiere evaluaciones adicionales con datos de cosechas subsecuentes.",
             body_style,
         )
     )
 
-    # Anexo de Evidencias de MLflow
+    # Anexo 1: Capturas de la interfaz de MLflow
     story.append(PageBreak())
     story.append(Paragraph("Anexo: Evidencias de Seguimiento en MLflow", h1_style))
     story.append(
         Paragraph(
-            "A continuación se presentan las capturas de pantalla obtenidas directamente desde la interfaz web de MLflow Tracking (alojada en http://127.0.0.1:5000), donde se comprueba el registro centralizado del experimento, las cinco corridas y los artefactos generados.",
+            "Las siguientes capturas corresponden a la interfaz de MLflow Tracking en el servidor local (http://127.0.0.1:5000), donde se verifica el registro centralizado del experimento, las cinco corridas seleccionadas y la comparativa de hiperparámetros y métricas.",
             body_style,
         )
     )
@@ -262,29 +288,26 @@ def create_report(output_pdf_path: str):
 
     img_runs_table = "reports/figures/mlflow_runs_table.png"
     if os.path.exists(img_runs_table):
-        story.append(Image(img_runs_table, width=460, height=225))
+        story.append(Image(img_runs_table, width=470, height=220))
         story.append(
-            Paragraph("Figura 1. Tabla de corridas en MLflow con las cinco configuraciones registradas y seleccionadas para comparación.", caption_style)
+            Paragraph("Figura 1. Tabla de corridas de entrenamiento en MLflow con las cinco configuraciones y métricas registradas.", caption_style)
         )
 
     story.append(Spacer(1, 6))
 
     img_compare_view = "reports/figures/mlflow_comparison_view.png"
     if os.path.exists(img_compare_view):
-        story.append(Image(img_compare_view, width=460, height=225))
+        story.append(Image(img_compare_view, width=470, height=220))
         story.append(
-            Paragraph(
-                "Figura 2. Vista de comparación de MLflow (Comparing 5 Runs) con gráfica de coordenadas paralelas y contraste de métricas.",
-                caption_style,
-            )
+            Paragraph("Figura 2. Vista de comparación en MLflow contrastando las métricas e hiperparámetros de las cinco ejecuciones.", caption_style)
         )
 
-    # Segunda página de anexos: artefactos y modelo
+    # Anexo 2: Detalle y artefactos de la corrida ganadora
     story.append(PageBreak())
-    story.append(Paragraph("Anexo: Detalle y Artefactos de la Corrida Ganadora", h1_style))
+    story.append(Paragraph("Anexo: Detalle y Artefactos de la Corrida Seleccionada", h1_style))
     story.append(
         Paragraph(
-            "Se verificó el registro de artefactos dentro del almacén de MLflow, incluyendo gráficas de dispersión (valores reales vs. predichos), distribución de residuales, importancia de características, reporte JSON de métricas y el modelo empaquetado con firma de entrada y salida.",
+            "En la vista de detalle de la corrida shallow_depth_5 se constató el almacenamiento de métricas, parámetros y artefactos, incluyendo la visualización de valores reales frente a predichos y la importancia de características calculada para el ensamble.",
             body_style,
         )
     )
@@ -292,18 +315,18 @@ def create_report(output_pdf_path: str):
 
     img_artifacts_preview = "reports/figures/mlflow_run_artifacts_preview.png"
     if os.path.exists(img_artifacts_preview):
-        story.append(Image(img_artifacts_preview, width=460, height=225))
+        story.append(Image(img_artifacts_preview, width=470, height=220))
         story.append(
-            Paragraph("Figura 3. Explorador de artefactos en MLflow mostrando la previsualización directa de la gráfica de dispersión para shallow_depth_5.", caption_style)
+            Paragraph("Figura 3. Explorador de artefactos en MLflow mostrando la gráfica de valores reales frente a predichos.", caption_style)
         )
 
     story.append(Spacer(1, 6))
 
     img_fi = "reports/figures/feature_importance.png"
     if os.path.exists(img_fi):
-        story.append(Image(img_fi, width=330, height=205))
+        story.append(Image(img_fi, width=340, height=205))
         story.append(
-            Paragraph("Figura 4. Gráfica de importancia de características registrada como artefacto en MLflow.", caption_style)
+            Paragraph("Figura 4. Gráfica de importancia de variables registrada como artefacto del modelo.", caption_style)
         )
 
     doc.build(story)

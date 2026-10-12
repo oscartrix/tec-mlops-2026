@@ -1,11 +1,21 @@
+"""Entrenamiento de un RandomForestRegressor para estimar el rendimiento de arroz
+(Paddy yield) con registro de parámetros, métricas, artefactos y modelo en MLflow.
+
+Ejemplo de uso:
+    python src/train.py --n-estimators 100 --max-depth 5 --random-state 42
+"""
+
 import argparse
 import json
 import os
+import socket
 import tempfile
 import zipfile
 from typing import Dict, Tuple
+from urllib.parse import urlparse
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
@@ -18,52 +28,57 @@ import mlflow
 import mlflow.sklearn
 from mlflow.models.signature import infer_signature
 
+TARGET_COLUMN = "Paddy yield(in Kg)"
+DEFAULT_SERVER_URI = "http://127.0.0.1:5000"
+LOCAL_TRACKING_URI = "sqlite:///mlflow.db"
+
 
 def parse_args() -> argparse.Namespace:
+    """Define los argumentos de línea de comandos y sus valores por defecto."""
     parser = argparse.ArgumentParser(
-        description="Entrenamiento y seguimiento de modelo RandomForestRegressor para rendimiento de arroz (Paddy Yield)."
+        description="Entrenamiento de RandomForestRegressor para el rendimiento de arroz con seguimiento en MLflow."
     )
     parser.add_argument(
         "--n-estimators",
         type=int,
         default=100,
-        help="Numero de arboles en el ensamble (default: 100).",
+        help="Número de árboles en el ensamble (default: 100).",
     )
     parser.add_argument(
         "--max-depth",
         type=lambda v: None if v in ("None", "none", "null", "") else int(v),
         default=None,
-        help="Profundidad maxima de los arboles (default: None).",
+        help="Profundidad máxima de cada árbol; None permite crecer sin límite (default: None).",
     )
     parser.add_argument(
         "--min-samples-split",
         type=int,
         default=2,
-        help="Numero minimo de muestras requeridas para dividir un nodo (default: 2).",
+        help="Número mínimo de muestras para dividir un nodo interno (default: 2).",
     )
     parser.add_argument(
         "--min-samples-leaf",
         type=int,
         default=1,
-        help="Numero minimo de muestras en un nodo hoja (default: 1).",
+        help="Número mínimo de muestras en cada hoja (default: 1).",
     )
     parser.add_argument(
         "--random-state",
         type=int,
         default=42,
-        help="Semilla aleatoria para reproducibilidad del split y modelo (default: 42).",
+        help="Semilla usada en la partición de datos y en el modelo (default: 42).",
     )
     parser.add_argument(
         "--test-size",
         type=float,
         default=0.2,
-        help="Proporcion del conjunto de prueba (default: 0.2).",
+        help="Proporción de datos reservada para prueba (default: 0.2).",
     )
     parser.add_argument(
         "--data-path",
         type=str,
         default="data/paddy+dataset.zip",
-        help="Ruta al archivo de datos en formato zip o csv (default: data/paddy+dataset.zip).",
+        help="Ruta al dataset en formato zip o csv (default: data/paddy+dataset.zip).",
     )
     parser.add_argument(
         "--experiment-name",
@@ -75,68 +90,65 @@ def parse_args() -> argparse.Namespace:
         "--run-name",
         type=str,
         default=None,
-        help="Nombre descriptivo para la ejecucion en MLflow (opcional).",
+        help="Nombre descriptivo de la corrida en MLflow (opcional).",
     )
     parser.add_argument(
         "--tracking-uri",
         type=str,
         default=None,
-        help="URI del servidor de MLflow (default: variable MLFLOW_TRACKING_URI o servidor local).",
+        help=(
+            "URI de tracking de MLflow. Si no se indica, se usa MLFLOW_TRACKING_URI, "
+            "luego el servidor local en el puerto 5000 y, si no está activo, sqlite:///mlflow.db."
+        ),
     )
     return parser.parse_args()
 
 
 def load_data(data_path: str) -> pd.DataFrame:
+    """Lee el dataset desde un archivo zip (sin extraerlo) o desde un csv."""
     if not os.path.exists(data_path):
-        raise FileNotFoundError(f"No se encontro el archivo de datos en la ruta: {data_path}")
+        raise FileNotFoundError(f"No se encontró el archivo de datos: {data_path}")
 
     if data_path.endswith(".zip"):
         with zipfile.ZipFile(data_path, "r") as z:
-            csv_candidates = [name for name in z.namelist() if name.endswith(".csv")]
-            if not csv_candidates:
-                raise ValueError("No se encontro ningun archivo CSV dentro del archivo zip.")
-            csv_filename = "paddydataset.csv" if "paddydataset.csv" in csv_candidates else csv_candidates[0]
-            with z.open(csv_filename) as f:
-                df = pd.read_csv(f)
-    elif data_path.endswith(".csv"):
-        df = pd.read_csv(data_path)
-    else:
-        raise ValueError(f"Formato de archivo no soportado: {data_path}. Use .zip o .csv.")
+            csv_files = [name for name in z.namelist() if name.endswith(".csv")]
+            if not csv_files:
+                raise ValueError("El archivo zip no contiene ningún csv.")
+            csv_name = "paddydataset.csv" if "paddydataset.csv" in csv_files else csv_files[0]
+            with z.open(csv_name) as f:
+                return pd.read_csv(f)
 
-    return df
+    if data_path.endswith(".csv"):
+        return pd.read_csv(data_path)
+
+    raise ValueError(f"Formato no soportado: {data_path}. Use .zip o .csv.")
 
 
 def preprocess_data(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
-    target_column = "Paddy yield(in Kg)"
-    if target_column not in df.columns:
-        raise KeyError(f"La columna objetivo '{target_column}' no esta presente en el DataFrame.")
+    """Elimina duplicados y atípicos de la variable objetivo y codifica las categóricas."""
+    if TARGET_COLUMN not in df.columns:
+        raise KeyError(f"La columna objetivo '{TARGET_COLUMN}' no está en el dataset.")
 
-    # Eliminacion de registros duplicados
     df_clean = df.drop_duplicates().reset_index(drop=True)
 
-    # Tratamiento de valores atipicos en la variable objetivo mediante Rango Intercuartilico (IQR)
-    q1 = df_clean[target_column].quantile(0.25)
-    q3 = df_clean[target_column].quantile(0.75)
+    q1 = df_clean[TARGET_COLUMN].quantile(0.25)
+    q3 = df_clean[TARGET_COLUMN].quantile(0.75)
     iqr = q3 - q1
-    lower_bound = q1 - 1.5 * iqr
-    upper_bound = q3 + 1.5 * iqr
+    in_range = df_clean[TARGET_COLUMN].between(q1 - 1.5 * iqr, q3 + 1.5 * iqr)
+    df_clean = df_clean[in_range].reset_index(drop=True)
 
-    df_clean = df_clean[(df_clean[target_column] >= lower_bound) & (df_clean[target_column] <= upper_bound)]
-    df_clean = df_clean.reset_index(drop=True)
-
-    # Codificacion de variables categoricas mediante One-Hot Encoding
     categorical_cols = df_clean.select_dtypes(include=["object", "string"]).columns
     df_encoded = pd.get_dummies(df_clean, columns=categorical_cols, drop_first=True)
 
-    X = df_encoded.drop(target_column, axis=1)
-    y = df_encoded[target_column]
-
+    X = df_encoded.drop(TARGET_COLUMN, axis=1)
+    y = df_encoded[TARGET_COLUMN]
     return X, y
 
 
 def split_data(
     X: pd.DataFrame, y: pd.Series, test_size: float, random_state: int
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
+    """Divide los datos en entrenamiento y prueba con una semilla fija."""
     return train_test_split(X, y, test_size=test_size, random_state=random_state)
 
 
@@ -149,6 +161,7 @@ def train_model(
     min_samples_leaf: int,
     random_state: int,
 ) -> RandomForestRegressor:
+    """Entrena el modelo. Se usa un solo hilo para que el resultado sea idéntico entre ejecuciones."""
     model = RandomForestRegressor(
         n_estimators=n_estimators,
         max_depth=max_depth,
@@ -164,19 +177,25 @@ def train_model(
 def evaluate_model(
     model: RandomForestRegressor, X_test: pd.DataFrame, y_test: pd.Series
 ) -> Tuple[np.ndarray, Dict[str, float]]:
+    """Calcula RMSE, MAE, R² y MSE sobre el conjunto de prueba."""
     y_pred = model.predict(X_test)
-    mse = mean_squared_error(y_test, y_pred)
-    rmse = float(np.sqrt(mse))
-    mae = float(mean_absolute_error(y_test, y_pred))
-    r2 = float(r2_score(y_test, y_pred))
-
+    mse = float(mean_squared_error(y_test, y_pred))
     metrics = {
-        "rmse": rmse,
-        "mae": mae,
-        "r2": r2,
-        "mse": float(mse),
+        "rmse": float(np.sqrt(mse)),
+        "mae": float(mean_absolute_error(y_test, y_pred)),
+        "r2": float(r2_score(y_test, y_pred)),
+        "mse": mse,
     }
     return y_pred, metrics
+
+
+def save_and_log_figure(fig: plt.Figure, tmp_dir: str, filename: str) -> None:
+    """Guarda una figura en disco, la registra en MLflow bajo plots/ y la cierra."""
+    path = os.path.join(tmp_dir, filename)
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    mlflow.log_artifact(path, artifact_path="plots")
 
 
 def generate_and_log_artifacts(
@@ -186,112 +205,92 @@ def generate_and_log_artifacts(
     y_pred: np.ndarray,
     metrics: Dict[str, float],
     run_name: str | None,
-):
+) -> None:
+    """Genera las gráficas de evaluación y el archivo de métricas y los registra como artefactos."""
+    suffix = f" ({run_name})" if run_name else ""
+
     with tempfile.TemporaryDirectory() as tmp_dir:
-        # 1. Grafica de Real vs Predicho
-        fig_pred, ax_pred = plt.subplots(figsize=(7, 6))
-        ax_pred.scatter(y_test, y_pred, alpha=0.5, color="#1f77b4", edgecolors="none")
-        min_val = min(float(y_test.min()), float(y_pred.min()))
-        max_val = max(float(y_test.max()), float(y_pred.max()))
-        ax_pred.plot([min_val, max_val], [min_val, max_val], color="#d62728", linestyle="--", linewidth=1.5)
-        ax_pred.set_xlabel("Rendimiento Real (kg)")
-        ax_pred.set_ylabel("Rendimiento Predicho (kg)")
-        title_suffix = f" ({run_name})" if run_name else ""
-        ax_pred.set_title(f"Valores Reales vs Predichos{title_suffix}")
-        fig_pred.tight_layout()
-        pred_path = os.path.join(tmp_dir, "actual_vs_predicted.png")
-        fig_pred.savefig(pred_path, dpi=150)
-        plt.close(fig_pred)
-        mlflow.log_artifact(pred_path, artifact_path="plots")
+        fig, ax = plt.subplots(figsize=(7, 6))
+        ax.scatter(y_test, y_pred, alpha=0.5, edgecolors="none")
+        lims = [min(y_test.min(), y_pred.min()), max(y_test.max(), y_pred.max())]
+        ax.plot(lims, lims, color="black", linestyle="--", linewidth=1.2)
+        ax.set_xlabel("Rendimiento real (kg)")
+        ax.set_ylabel("Rendimiento predicho (kg)")
+        ax.set_title(f"Valores reales vs predichos{suffix}")
+        save_and_log_figure(fig, tmp_dir, "actual_vs_predicted.png")
 
-        # 2. Distribucion de residuales
-        residuals = y_test - y_pred
-        fig_res, ax_res = plt.subplots(figsize=(7, 5))
-        ax_res.hist(residuals, bins=30, color="#2ca02c", edgecolor="black", alpha=0.7)
-        ax_res.axvline(0, color="#d62728", linestyle="--", linewidth=1.5)
-        ax_res.set_xlabel("Residual (Real - Predicho)")
-        ax_res.set_ylabel("Frecuencia")
-        ax_res.set_title(f"Distribucion de Residuales{title_suffix}")
-        fig_res.tight_layout()
-        res_path = os.path.join(tmp_dir, "residuals_distribution.png")
-        fig_res.savefig(res_path, dpi=150)
-        plt.close(fig_res)
-        mlflow.log_artifact(res_path, artifact_path="plots")
+        fig, ax = plt.subplots(figsize=(7, 5))
+        ax.hist(y_test - y_pred, bins=30, edgecolor="black", alpha=0.7)
+        ax.axvline(0, color="black", linestyle="--", linewidth=1.2)
+        ax.set_xlabel("Residual (real - predicho)")
+        ax.set_ylabel("Frecuencia")
+        ax.set_title(f"Distribución de residuales{suffix}")
+        save_and_log_figure(fig, tmp_dir, "residuals_distribution.png")
 
-        # 3. Importancia de caracteristicas (Top 15)
-        feature_importances = model.feature_importances_
-        features = list(X_test.columns)
-        feat_df = (
-            pd.DataFrame({"caracteristica": features, "importancia": feature_importances})
-            .sort_values("importancia", ascending=True)
+        importances = (
+            pd.Series(model.feature_importances_, index=X_test.columns)
+            .sort_values()
             .tail(15)
         )
+        fig, ax = plt.subplots(figsize=(9, 6))
+        ax.barh(importances.index, importances.values)
+        ax.set_xlabel("Importancia relativa")
+        ax.set_title(f"Las 15 características más importantes{suffix}")
+        save_and_log_figure(fig, tmp_dir, "feature_importance.png")
 
-        fig_fi, ax_fi = plt.subplots(figsize=(9, 6))
-        ax_fi.barh(feat_df["caracteristica"], feat_df["importancia"], color="#1f77b4")
-        ax_fi.set_xlabel("Importancia Relativa")
-        ax_fi.set_title(f"Top 15 Caracteristicas mas Influyentes{title_suffix}")
-        fig_fi.tight_layout()
-        fi_path = os.path.join(tmp_dir, "feature_importance.png")
-        fig_fi.savefig(fi_path, dpi=150)
-        plt.close(fig_fi)
-        mlflow.log_artifact(fi_path, artifact_path="plots")
-
-        # 4. Archivo de metricas en formato JSON
         metrics_path = os.path.join(tmp_dir, "metrics.json")
         with open(metrics_path, "w", encoding="utf-8") as f:
             json.dump(metrics, f, indent=2)
         mlflow.log_artifact(metrics_path, artifact_path="metrics")
 
 
-def configure_tracking(tracking_uri: str | None):
+def server_is_up(uri: str, timeout: float = 1.0) -> bool:
+    """Comprueba si hay un servidor escuchando en el host y puerto de la URI."""
+    parsed = urlparse(uri)
+    try:
+        with socket.create_connection((parsed.hostname, parsed.port or 80), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def configure_tracking(tracking_uri: str | None) -> None:
+    """Selecciona el destino de tracking: argumento, variable de entorno, servidor local o sqlite."""
     if tracking_uri:
-        mlflow.set_tracking_uri(tracking_uri)
+        uri = tracking_uri
+    elif os.getenv("MLFLOW_TRACKING_URI"):
+        uri = os.environ["MLFLOW_TRACKING_URI"]
+    elif server_is_up(DEFAULT_SERVER_URI):
+        uri = DEFAULT_SERVER_URI
     else:
-        default_uri = os.getenv("MLFLOW_TRACKING_URI", "http://127.0.0.1:5000")
-        mlflow.set_tracking_uri(default_uri)
+        uri = LOCAL_TRACKING_URI
+    mlflow.set_tracking_uri(uri)
 
 
-def main():
+def main() -> None:
+    """Ejecuta el flujo completo: datos, entrenamiento, evaluación y registro en MLflow."""
     args = parse_args()
     configure_tracking(args.tracking_uri)
-
-    print(f"Tracking URI configurada: {mlflow.get_tracking_uri()}")
+    print(f"Tracking URI: {mlflow.get_tracking_uri()}")
     mlflow.set_experiment(args.experiment_name)
 
-    # 1. Carga y preprocesamiento de datos
-    print(f"Cargando dataset desde: {args.data_path}")
     raw_df = load_data(args.data_path)
-    print(f"Dataset original cargado con {raw_df.shape[0]} filas y {raw_df.shape[1]} columnas.")
-
     X, y = preprocess_data(raw_df)
-    print(f"Dataset procesado: {X.shape[0]} filas y {X.shape[1]} caracteristicas resultantes tras one-hot encoding.")
+    X_train, X_test, y_train, y_test = split_data(X, y, args.test_size, args.random_state)
+    print(f"Registros: {len(raw_df)} originales, {len(X)} tras limpieza; {X.shape[1]} características.")
+    print(f"Entrenamiento: {len(X_train)} | Prueba: {len(X_test)}")
 
-    # 2. Division de conjuntos de entrenamiento y prueba
-    X_train, X_test, y_train, y_test = split_data(
-        X, y, test_size=args.test_size, random_state=args.random_state
-    )
-    print(f"Muestras de entrenamiento: {len(X_train)} | Muestras de evaluacion: {len(X_test)}")
-
-    # 3. Registro de experimento en MLflow
     with mlflow.start_run(run_name=args.run_name) as run:
-        run_id = run.info.run_id
-        effective_run_name = args.run_name if args.run_name else run_id[:8]
-        print(f"MLflow Run ID: {run_id} ({effective_run_name})")
-
-        # Tags descriptivos
         mlflow.set_tags(
             {
                 "task": "regression",
                 "dataset": "paddy_dataset",
-                "target": "Paddy yield(in Kg)",
-                "model_family": "ensemble",
+                "target": TARGET_COLUMN,
                 "algorithm": "RandomForestRegressor",
                 "framework": "scikit-learn",
             }
         )
 
-        # Registro de hiperparametros
         params = {
             "n_estimators": args.n_estimators,
             "max_depth": "None" if args.max_depth is None else args.max_depth,
@@ -300,14 +299,12 @@ def main():
             "random_state": args.random_state,
             "test_size": args.test_size,
         }
-        mlflow.log_params(params)
-        print("Parametros registrados:", params)
+        for key, value in params.items():
+            mlflow.log_param(key, value)
 
-        # 4. Entrenamiento
-        print("Entrenando modelo RandomForestRegressor...")
         model = train_model(
-            X_train=X_train,
-            y_train=y_train,
+            X_train,
+            y_train,
             n_estimators=args.n_estimators,
             max_depth=args.max_depth,
             min_samples_split=args.min_samples_split,
@@ -315,36 +312,21 @@ def main():
             random_state=args.random_state,
         )
 
-        # 5. Evaluacion
         y_pred, metrics = evaluate_model(model, X_test, y_test)
-        mlflow.log_metrics(metrics)
-        print("Metricas de desempeno obtenidas:")
-        for k, v in metrics.items():
-            print(f"  {k}: {v:.4f}")
+        for key, value in metrics.items():
+            mlflow.log_metric(key, value)
+        print("Métricas:", {k: round(v, 4) for k, v in metrics.items()})
 
-        # 6. Artefactos (graficas y reporte numerico)
-        generate_and_log_artifacts(
-            model=model,
-            X_test=X_test,
-            y_test=y_test,
-            y_pred=y_pred,
-            metrics=metrics,
-            run_name=args.run_name,
-        )
-
-        # 7. Registro del modelo empaquetado con firma y ejemplo de entrada
-        signature = infer_signature(X_train, model.predict(X_train))
-        input_example = X_train.iloc[:5]
+        generate_and_log_artifacts(model, X_test, y_test, y_pred, metrics, args.run_name)
 
         mlflow.sklearn.log_model(
             sk_model=model,
             name="model",
-            signature=signature,
-            input_example=input_example,
+            signature=infer_signature(X_train, model.predict(X_train)),
+            input_example=X_train.iloc[:5],
             skops_trusted_types=["sklearn.tree._tree.Tree"],
         )
-        print("Modelo, parametros, metricas y artefactos registrados exitosamente en MLflow.")
-        print(f"Artefactos ubicados en: {run.info.artifact_uri}")
+        print(f"Corrida registrada: {run.info.run_id}")
 
 
 if __name__ == "__main__":

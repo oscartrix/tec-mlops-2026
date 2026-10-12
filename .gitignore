@@ -13,8 +13,10 @@ __pycache__/
 # Checkpoints de Jupyter
 .ipynb_checkpoints/
 
-# MLflow local runs (si se ejecutan sin servidor remoto)
+# MLflow local (backend sqlite y artefactos cuando no hay servidor)
 mlruns/
+mlartifacts/
+mlflow.db
 .mlflow/
 
 # Archivos de sistema y logs
