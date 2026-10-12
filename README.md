@@ -25,7 +25,7 @@ Repositorio: https://github.com/oscartrix/tec-mlops-2026.git
 
 ## Requisitos Previos
 
-- Python 3.10 o superior (validado en Python 3.12).
+- Python 3.12 o superior. La versión fijada de numpy (2.5.3) no se instala en versiones anteriores.
 - Servidor MLflow local o base de datos SQLite para registro de experimentos.
 
 ## Instalación y Configuración
@@ -80,7 +80,7 @@ python src/train.py
 - `--data-path`: Ruta al dataset zip o csv (por defecto: data/paddy+dataset.zip).
 - `--experiment-name`: Nombre del experimento en MLflow (por defecto: Paddy_Yield_Random_Forest).
 - `--run-name`: Nombre descriptivo de la corrida en MLflow (opcional).
-- `--tracking-uri`: URI del servidor de MLflow (por defecto: http://127.0.0.1:5000).
+- `--tracking-uri`: URI de tracking de MLflow (opcional). Si no se indica, el script usa la variable `MLFLOW_TRACKING_URI`; si no existe, usa el servidor en http://127.0.0.1:5000 cuando está activo, y si no lo está, registra en `sqlite:///mlflow.db`.
 
 Ejemplo de ejecución con hiperparámetros personalizados:
 

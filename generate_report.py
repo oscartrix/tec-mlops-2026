@@ -89,9 +89,9 @@ def create_report(output_pdf_path: str):
 
     code_style = ParagraphStyle(
         name="CodeBlock",
-        fontName="Courier",
-        fontSize=9,
-        leading=13,
+        fontName=font_reg,
+        fontSize=11,
+        leading=16.5,
         textColor=colors.black,
         backColor=colors.white,  # Estricto blanco y negro, sin sombreados grises
         spaceAfter=8,
@@ -101,8 +101,8 @@ def create_report(output_pdf_path: str):
     table_header_style = ParagraphStyle(
         name="TableHeader",
         fontName=font_bold,
-        fontSize=7.5,
-        leading=9.5,
+        fontSize=11,
+        leading=13,
         textColor=colors.black,
         alignment=1,
     )
@@ -110,8 +110,8 @@ def create_report(output_pdf_path: str):
     table_cell_style = ParagraphStyle(
         name="TableCell",
         fontName=font_reg,
-        fontSize=7.5,
-        leading=9.5,
+        fontSize=11,
+        leading=13,
         textColor=colors.black,
         alignment=1,
     )
@@ -139,10 +139,10 @@ def create_report(output_pdf_path: str):
     )
 
     # 1. Comando de ejecución
-    story.append(Paragraph("1. Comando de Ejecución", h1_style))
+    story.append(Paragraph("1. Comando de ejecución", h1_style))
     story.append(
         Paragraph(
-            "El script de entrenamiento y seguimiento se ejecuta desde la línea de comandos permitiendo controlar los hiperparámetros y la semilla de aleatoriedad. La configuración con mejor desempeño se reproduce con el siguiente comando:",
+            "El script se ejecuta desde la línea de comandos y recibe los hiperparámetros y la semilla como argumentos. La mejor configuración se reproduce con este comando:",
             body_style,
         )
     )
@@ -154,17 +154,17 @@ def create_report(output_pdf_path: str):
     )
     story.append(
         Paragraph(
-            "Adicionalmente, la totalidad de los cinco experimentos comparativos se ejecuta de manera automatizada mediante el script run_experiments.sh:",
+            "Las cinco corridas del experimento se ejecutan en secuencia con run_experiments.sh:",
             body_style,
         )
     )
     story.append(Paragraph("bash run_experiments.sh", code_style))
 
     # 2. Resumen comparativo de corridas
-    story.append(Paragraph("2. Comparación Sistemática de Experimentos", h1_style))
+    story.append(Paragraph("2. Comparación de corridas", h1_style))
     story.append(
         Paragraph(
-            "Se registraron cinco corridas bajo el experimento Paddy_Yield_Random_Forest en el servidor de MLflow Tracking, variando la profundidad máxima, el número de estimadores y las restricciones de bifurcación y hojas. Los resultados obtenidos sobre el conjunto de prueba independiente con semilla fija en 42 se presentan a continuación:",
+            "Se registraron cinco corridas en el experimento Paddy_Yield_Random_Forest. Entre ellas cambian la profundidad máxima, el número de árboles y el mínimo de muestras para dividir un nodo y por hoja. La semilla fue 42 en todas. Estos son los resultados sobre el conjunto de prueba:",
             body_style,
         )
     )
@@ -173,10 +173,10 @@ def create_report(output_pdf_path: str):
     table_data = [
         [
             Paragraph("Corrida", table_header_style),
-            Paragraph("max_depth", table_header_style),
-            Paragraph("n_estimators", table_header_style),
-            Paragraph("min_split", table_header_style),
-            Paragraph("min_leaf", table_header_style),
+            Paragraph("Prof. máx.", table_header_style),
+            Paragraph("Árboles", table_header_style),
+            Paragraph("Min. split", table_header_style),
+            Paragraph("Min. hoja", table_header_style),
             Paragraph("RMSE (kg)", table_header_style),
             Paragraph("MAE (kg)", table_header_style),
             Paragraph("R²", table_header_style),
@@ -234,7 +234,7 @@ def create_report(output_pdf_path: str):
     ]
 
     # Tabla sin líneas horizontales y en blanco y negro puro
-    comp_table = Table(table_data, colWidths=[120, 52, 60, 46, 44, 48, 48, 38])
+    comp_table = Table(table_data, colWidths=[174, 44, 54, 38, 38, 52, 52, 46])
     comp_table.setStyle(
         TableStyle(
             [
@@ -249,38 +249,21 @@ def create_report(output_pdf_path: str):
     story.append(Spacer(1, 10))
 
     # 3. Análisis de Resultados en prosa continua y directa
-    story.append(Paragraph("3. Análisis de Resultados", h1_style))
-    story.append(
-        Paragraph(
-            "Entre las configuraciones evaluadas, el ensamble con profundidad acotada a cinco niveles (shallow_depth_5) obtuvo el desempeño más favorable, alcanzando un RMSE de 910.49 kg, un MAE de 654.73 kg y un coeficiente de determinación R² de 0.9903. En comparación con la línea base no restringida, este ajuste representó una reducción de 58.10 kg en el error cuadrático medio y de 40.89 kg en el error absoluto medio, lo que confirma que limitar el crecimiento vertical de los árboles reduce la sobreespecialización en las fluctuaciones puntuales de la muestra de entrenamiento.",
-            body_style,
-        )
-    )
-    story.append(
-        Paragraph(
-            "El hiperparámetro con mayor influencia en la capacidad predictiva fue la profundidad máxima de los árboles, junto con el tamaño mínimo de muestra en las hojas. Cuando se permitió un crecimiento libre o excesivamente profundo, el modelo tendió a memorizar patrones locales y ruido en las variables agronómicas continuas. Por el contrario, restringir la profundidad o exigir un mínimo de cuatro muestras por hoja aportó una regularización efectiva. Incrementar el número de árboles de 100 a 250 aportó beneficios marginales despreciables frente al costo computacional adicional, sin corregir la sobreestimación cuando la profundidad permaneció sin límites.",
-            body_style,
-        )
-    )
-    story.append(
-        Paragraph(
-            "Es fundamental señalar que el rendimiento agrícola en este conjunto de datos presenta una correlación lineal superior a 0.99 con la superficie de la parcela en hectáreas, debido a que la producción total en kilogramos está dominada por el tamaño del terreno. Por esta razón, modelos lineales elementales ya explican cerca del 98.7% de la varianza total, y las variaciones entre configuraciones de Random Forest corresponden a ajustes finos en torno a desviaciones locales.",
-            body_style,
-        )
-    )
-    story.append(
-        Paragraph(
-            "Entre las limitaciones principales se encuentra que la partición aleatoria convencional entre entrenamiento y prueba no contempla correlaciones espaciales ni temporales entre ciclos de cosecha, lo que puede sobrestimar el desempeño ante variaciones climáticas imprevistas. Asimismo, la codificación de variables categóricas aumentó la dimensionalidad a 63 columnas, favoreciendo la dispersión en las decisiones de corte de los árboles. Por tanto, la validación del modelo requiere evaluaciones adicionales con datos de cosechas subsecuentes.",
-            body_style,
-        )
-    )
+    story.append(Paragraph("3. Análisis de resultados", h1_style))
+    analysis = [
+        "La configuración con mejor desempeño fue shallow_depth_5, con RMSE de 910.49 kg, MAE de 654.73 kg y R² de 0.9903. Frente a baseline_default, el RMSE bajó 58.10 kg y el MAE 40.89 kg.",
+        "El hiperparámetro más influyente fue la profundidad máxima. Las corridas baseline_default y shallow_depth_5 solo difieren en ese valor (sin límite contra cinco niveles), así que la mejora se le puede atribuir directamente. Limitar la profundidad obliga a cada árbol a promediar grupos más grandes de parcelas en lugar de ajustarse a diferencias pequeñas del conjunto de entrenamiento. En cambio, subir de 100 a 250 árboles con profundidad 15 dejó el error casi igual que la línea base. La corrida regularized_split10_leaf4 también mejoró, pero en ella cambiaron tres parámetros a la vez y no es posible separar el efecto de cada uno.",
+        "El ejercicio tiene varias limitaciones. La producción en kilos depende casi por completo de la superficie sembrada: la correlación con las hectáreas es de 0.99 y una regresión lineal ya explica el 98.7 % de la varianza. Por eso las diferencias entre configuraciones son pequeñas. Además, cada configuración se evaluó con una sola partición. Al repetir la comparación con las semillas 1, 7 y 123, la profundidad cinco siguió siendo mejor, pero el RMSE cambió hasta 100 kg solo por la partición, una magnitud parecida a la diferencia entre configuraciones. Una validación cruzada daría una comparación más confiable. Por último, la partición aleatoria no separa las cosechas por temporada ni por región, por lo que el desempeño con datos de ciclos futuros podría ser menor.",
+    ]
+    for text in analysis:
+        story.append(Paragraph(text, body_style))
 
     # Anexo 1: Capturas de la interfaz de MLflow
     story.append(PageBreak())
-    story.append(Paragraph("Anexo: Evidencias de Seguimiento en MLflow", h1_style))
+    story.append(Paragraph("Anexo: evidencias en MLflow", h1_style))
     story.append(
         Paragraph(
-            "Las siguientes capturas corresponden a la interfaz de MLflow Tracking en el servidor local (http://127.0.0.1:5000), donde se verifica el registro centralizado del experimento, las cinco corridas seleccionadas y la comparativa de hiperparámetros y métricas.",
+            "Las capturas se tomaron de la interfaz de MLflow en el servidor local (http://127.0.0.1:5000). Muestran las cinco corridas del experimento con sus parámetros y métricas, y la vista de comparación entre ellas.",
             body_style,
         )
     )
@@ -297,17 +280,17 @@ def create_report(output_pdf_path: str):
 
     img_compare_view = "reports/figures/mlflow_comparison_view.png"
     if os.path.exists(img_compare_view):
-        story.append(Image(img_compare_view, width=470, height=220))
+        story.append(Image(img_compare_view, width=470, height=248))
         story.append(
-            Paragraph("Figura 2. Vista de comparación en MLflow contrastando las métricas e hiperparámetros de las cinco ejecuciones.", caption_style)
+            Paragraph("Figura 2. Vista de comparación de MLflow con los hiperparámetros y el RMSE de las cinco corridas.", caption_style)
         )
 
     # Anexo 2: Detalle y artefactos de la corrida ganadora
     story.append(PageBreak())
-    story.append(Paragraph("Anexo: Detalle y Artefactos de la Corrida Seleccionada", h1_style))
+    story.append(Paragraph("Anexo: artefactos de la mejor corrida", h1_style))
     story.append(
         Paragraph(
-            "En la vista de detalle de la corrida shallow_depth_5 se constató el almacenamiento de métricas, parámetros y artefactos, incluyendo la visualización de valores reales frente a predichos y la importancia de características calculada para el ensamble.",
+            "La pestaña de artefactos de la corrida shallow_depth_5 muestra los archivos registrados: las tres gráficas de evaluación en la carpeta plots y el archivo metrics.json en la carpeta metrics. El modelo se registró con mlflow.sklearn.log_model y aparece en la columna Models de la tabla de corridas.",
             body_style,
         )
     )
@@ -315,7 +298,7 @@ def create_report(output_pdf_path: str):
 
     img_artifacts_preview = "reports/figures/mlflow_run_artifacts_preview.png"
     if os.path.exists(img_artifacts_preview):
-        story.append(Image(img_artifacts_preview, width=470, height=220))
+        story.append(Image(img_artifacts_preview, width=470, height=248))
         story.append(
             Paragraph("Figura 3. Explorador de artefactos en MLflow mostrando la gráfica de valores reales frente a predichos.", caption_style)
         )
@@ -324,7 +307,7 @@ def create_report(output_pdf_path: str):
 
     img_fi = "reports/figures/feature_importance.png"
     if os.path.exists(img_fi):
-        story.append(Image(img_fi, width=340, height=205))
+        story.append(Image(img_fi, width=340, height=227))
         story.append(
             Paragraph("Figura 4. Gráfica de importancia de variables registrada como artefacto del modelo.", caption_style)
         )
